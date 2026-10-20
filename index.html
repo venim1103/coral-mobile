@@ -1205,6 +1205,52 @@
             computeTrainLoss(x, yTrue, hPrefix, tierId = 1, blendConfig = null, customPonderSteps = null, regStrength = 0.0001) {
                 const batch = x.shape[0];
                 const K = Math.max(1, Math.min(MAX_PONDER_STEPS, customPonderSteps || this.config.ponderSteps || 1));
+                const regLoss = this.getRegularizationLoss(regStrength);
+
+                if (this.config.readoutMode === 'vocab') {
+                    const V = Math.max(2, Math.min(MAX_VOCAB, this.config.activeVocab || 4));
+                    const isFullV = (V === MAX_VOCAB);
+                    const curW = isFullV ? this.vocabHead : this.vocabHead.slice([0, 0], [this.config.dModel, V]);
+                    const curB = isFullV ? this.vocabBias : this.vocabBias.slice([0], [V]);
+                    const curAnchors = isFullV ? this.vocabAnchorsTensor : this.vocabAnchorsTensor.slice([0, 0], [V, 1]);
+
+                    // Detached one-hot target computation OUTSIDE the autograd gradient tape
+                    // Avoids non-differentiable ArgMin/OneHot backward gradient crash in optimizer.minimize()
+                    const targetOneHot = tf.tidy(() => {
+                        const yFlat = yTrue.reshape([batch * this.seqLen, 1]);
+                        const anchorsRow = curAnchors.transpose(); // [1, V]
+                        const diffs = yFlat.sub(anchorsRow).abs(); // [batch * seqLen, V]
+                        const targetIndices = diffs.argMin(1); // [batch * seqLen]
+                        return tf.oneHot(targetIndices, V); // [batch * seqLen, V]
+                    });
+
+                    const h0 = this.encodeStem(x, tierId, blendConfig);
+                    let hFinal;
+                    if (K === 1 || !hPrefix) {
+                        hFinal = this.runSinglePonderPass(h0, 0, 1);
+                    } else {
+                        const hIn = hPrefix.mul(0.85).add(h0.mul(0.15));
+                        hFinal = this.runSinglePonderPass(hIn, K - 1, K);
+                    }
+
+                    const hSpatialOut = hFinal.slice([0, 1, 0], [batch, this.seqLen, this.config.dModel]);
+                    const hOut = hSpatialOut.reshape([batch * this.seqLen, this.config.dModel]);
+
+                    const logits = hOut.matMul(curW).add(curB); // [batch * seqLen, V]
+                    const probs = tf.softmax(logits);
+                    const expectedFlat = probs.matMul(curAnchors);
+                    const expectedPred = expectedFlat.reshape([batch, this.seqLen]);
+
+                    const ceLoss = tf.losses.softmaxCrossEntropy(targetOneHot, logits);
+                    const mseLoss = tf.losses.meanSquaredError(yTrue, expectedPred);
+                    targetOneHot.dispose();
+                    
+                    // Hybrid loss: categorical cross-entropy wakes up cold-start slots;
+                    // anchor MSE keeps loss scale aligned with curriculum thresholds
+                    const totalLoss = ceLoss.mul(0.75).add(mseLoss.mul(0.25)).add(regLoss);
+                    return totalLoss;
+                }
+
                 const h0 = this.encodeStem(x, tierId, blendConfig);
                 let hFinal;
                 if (K === 1 || !hPrefix) {
@@ -1216,37 +1262,6 @@
 
                 const hSpatialOut = hFinal.slice([0, 1, 0], [batch, this.seqLen, this.config.dModel]);
                 const hOut = hSpatialOut.reshape([batch * this.seqLen, this.config.dModel]);
-                const regLoss = this.getRegularizationLoss(regStrength);
-
-                if (this.config.readoutMode === 'vocab') {
-                    const V = Math.max(2, Math.min(MAX_VOCAB, this.config.activeVocab || 4));
-                    const isFullV = (V === MAX_VOCAB);
-                    const curW = isFullV ? this.vocabHead : this.vocabHead.slice([0, 0], [this.config.dModel, V]);
-                    const curB = isFullV ? this.vocabBias : this.vocabBias.slice([0], [V]);
-                    const curAnchors = isFullV ? this.vocabAnchorsTensor : this.vocabAnchorsTensor.slice([0, 0], [V, 1]);
-
-                    const logits = hOut.matMul(curW).add(curB); // [batch * seqLen, V]
-                    const probs = tf.softmax(logits);
-                    const expectedFlat = probs.matMul(curAnchors);
-                    const expectedPred = expectedFlat.reshape([batch, this.seqLen]);
-
-                    // Map continuous targets yTrue to nearest anchor indices in [0..V-1]
-                    // anchors are [V, 1], yFlat is [batch * seqLen, 1]
-                    const yFlat = yTrue.reshape([batch * this.seqLen, 1]);
-                    const anchorsRow = curAnchors.transpose(); // [1, V]
-                    const diffs = yFlat.sub(anchorsRow).abs(); // [batch * seqLen, V]
-                    const targetIndices = diffs.argMin(1); // [batch * seqLen]
-                    const targetOneHot = tf.oneHot(targetIndices, V); // [batch * seqLen, V]
-
-                    const ceLoss = tf.losses.softmaxCrossEntropy(targetOneHot, logits);
-                    const mseLoss = tf.losses.meanSquaredError(yTrue, expectedPred);
-                    
-                    // Hybrid loss: categorical cross-entropy directly sharpens logits & wakes up cold-start slots;
-                    // anchor MSE keeps scale aligned with curriculum thresholds
-                    const totalLoss = ceLoss.mul(0.75).add(mseLoss.mul(0.25)).add(regLoss);
-                    return totalLoss;
-                }
-
                 const outFlat = hOut.matMul(this.outputHead).add(this.outputBias);
                 const pred = outFlat.reshape([batch, this.seqLen]);
                 const mse = tf.losses.meanSquaredError(yTrue, pred);
@@ -2360,7 +2375,7 @@
                     <div className="glass-panel w-full max-w-xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh]">
                         <div className="p-4 border-b border-white/10 flex justify-between items-center bg-gray-950/70">
                             <h2 className="text-sm font-bold text-white flex items-center gap-2">
-                                <Database size={17} className="text-amber-400"/> BRAIN DNA VAULT &amp; PARITY INSPECTOR (v15.2)
+                                <Database size={17} className="text-amber-400"/> BRAIN DNA VAULT &amp; PARITY INSPECTOR (v15.3)
                             </h2>
                             <button onClick={onClose} className="text-gray-400 hover:text-white text-xl leading-none px-2">&times;</button>
                         </div>
@@ -2488,7 +2503,7 @@
             <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
                 <div className="glass-panel w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
                     <div className="p-4 border-b border-white/10 flex justify-between items-center bg-gray-950/60">
-                        <h2 className="text-base font-bold text-white flex items-center gap-2"><Brain size={20} className="text-amber-500"/> C.O.R.A.L. v15.2 SYMBOLIC &amp; RECURRENT CORTEX</h2>
+                        <h2 className="text-base font-bold text-white flex items-center gap-2"><Brain size={20} className="text-amber-500"/> C.O.R.A.L. v15.3 SYMBOLIC &amp; RECURRENT CORTEX</h2>
                         <button onClick={onClose} className="text-gray-400 hover:text-white text-xl leading-none">&times;</button>
                     </div>
                     <div className="p-6 overflow-y-auto space-y-6 text-gray-300 text-xs md:text-sm leading-relaxed">
@@ -2496,7 +2511,7 @@
                             <h3 className="text-sky-400 font-bold mb-1.5 uppercase tracking-wider text-xs flex items-center gap-1.5">
                                 <Repeat size={14} className="text-sky-400"/> 1. Recurrent Pondering Loop &amp; Prefix-Detached BPTT
                             </h3>
-                            <p>Rather than tying computational depth strictly to parameter count, C.O.R.A.L. v15.2 cycles the latent token stream through its existing organic layers for <i>K</i> recurrent "Thinking Steps" before projecting to the output head. A 3-layer cortex pondering for <i>K=4</i> steps achieves an effective depth of <b>12 layers with 0 additional weight matrices</b>!</p>
+                            <p>Rather than tying computational depth strictly to parameter count, C.O.R.A.L. v15.3 cycles the latent token stream through its existing organic layers for <i>K</i> recurrent "Thinking Steps" before projecting to the output head. A 3-layer cortex pondering for <i>K=4</i> steps achieves an effective depth of <b>12 layers with 0 additional weight matrices</b>!</p>
                         </div>
                         <div>
                             <h3 className="text-purple-400 font-bold mb-1.5 uppercase tracking-wider text-xs flex items-center gap-1.5">
@@ -2865,44 +2880,27 @@
             useEffect(() => { 
                 const init = async () => { 
                     try {
-                        try {
-                            tf.env().set('WEBGL_PACK', true);
-                            tf.env().set('WEBGL_EXP_CONV', true);
-                        } catch(e) {}
-
-                        await tf.ready(); 
-                        let activeBackend = 'webgl';
-                        if (navigator.gpu) {
-                            try {
-                                await tf.setBackend('webgpu');
-                                tf.tidy(() => { const t = tf.tensor1d([1]); t.square(); });
-                                activeBackend = 'webgpu';
-                            } catch (gpuErr) {
-                                await tf.setBackend('webgl');
-                                activeBackend = 'webgl';
-                            }
-                        } else {
-                            await tf.setBackend('webgl');
-                            activeBackend = 'webgl';
-                        }
+                        await tf.setBackend('cpu');
                         await tf.ready();
-                        setUiState(p => ({...p, backend: activeBackend})); 
+                        setUiState(p => ({ ...p, backend: 'cpu' })); 
                         setIsTfReady(true);
                     } catch (err) {
-                        await tf.setBackend('cpu');
-                        setUiState(p => ({...p, backend: 'cpu'}));
+                        console.error("TF init error:", err);
                         setIsTfReady(true);
-                        showToast("Using CPU Backend");
                     }
                 }; 
                 init(); 
             }, []);
 
             const handleCycleBackend = async () => {
-                const candidates = navigator.gpu ? ['webgpu', 'webgl', 'cpu'] : ['webgl', 'cpu'];
                 const current = tf.getBackend();
-                const nextIdx = (candidates.indexOf(current) + 1) % candidates.length;
-                const next = candidates[nextIdx];
+                const next = current === 'cpu' ? 'webgpu' : 'cpu';
+                
+                if (next === 'webgpu' && !navigator.gpu) {
+                    showToast("WebGPU is not supported on this browser/device");
+                    return;
+                }
+
                 try {
                     await tf.setBackend(next);
                     await tf.ready();
@@ -2911,7 +2909,9 @@
                     refreshMemoryTelemetry();
                     showToast(`Active Backend: ${next.toUpperCase()}`);
                 } catch(e) {
-                    showToast(`Switch to ${next.toUpperCase()} failed`);
+                    await tf.setBackend('cpu');
+                    setUiState(p => ({ ...p, backend: 'cpu' }));
+                    showToast(`Switch to ${next.toUpperCase()} failed (reverted to CPU)`);
                 }
             };
 
