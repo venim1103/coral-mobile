@@ -1206,13 +1206,13 @@
                 const batch = yTrue.shape[0];
                 const V = Math.max(2, Math.min(MAX_VOCAB, this.config.activeVocab || 4));
                 const isFullV = (V === MAX_VOCAB);
-                const curAnchors = isFullV ? this.vocabAnchorsTensor : this.vocabAnchorsTensor.slice([0, 0], [V, 1]);
                 return tf.tidy(() => {
+                    const curAnchors = isFullV ? this.vocabAnchorsTensor : this.vocabAnchorsTensor.slice([0, 0], [V, 1]);
                     const yFlat = yTrue.reshape([batch * this.seqLen, 1]);
-                    const anchorsRow = curAnchors.transpose(); // [1, V]
-                    const diffs = yFlat.sub(anchorsRow).abs(); // [batch * seqLen, V]
-                    const targetIndices = diffs.argMin(1); // [batch * seqLen]
-                    return tf.oneHot(targetIndices, V, 1.0, 0.0, 'float32'); // explicitly float32
+                    const anchorsRow = curAnchors.transpose(); // [1, V] float32
+                    // Pure float32 nearest-anchor target distribution (avoids int32 argMin/oneHot dtype crashes in TF.js)
+                    const negDist = yFlat.sub(anchorsRow).abs().mul(-100.0); // [batch * seqLen, V] float32
+                    return tf.softmax(negDist);
                 });
             }
 
