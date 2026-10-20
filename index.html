@@ -1462,7 +1462,7 @@
 
                                     attnMeta.push({
                                         mask: [...block.headMaskState],
-                                        label: K > 1 ? `P${k + 1}âĒ${baseLabel}` : baseLabel,
+                                        label: K > 1 ? `P${k + 1} • ${baseLabel}` : baseLabel,
                                         activeHeads: block.activeHeads,
                                         maxHeads: this.config.maxHeads,
                                         seqLen: this.seqLen,
@@ -1483,7 +1483,7 @@
                                 }
 
                                 resTensors.push(hStep);
-                                residualMeta.push(K > 1 ? `P${k + 1}âĒL${l + 1}` : `L${l + 1}`);
+                                residualMeta.push(K > 1 ? `P${k + 1} • L${l + 1}` : `L${l + 1}`);
                             }
 
                             if (K === 1) {
@@ -1837,7 +1837,7 @@
                             </div>
                             <div className="flex gap-4 mt-1">
                                 <span className="text-[10px] font-mono text-amber-400">ACTIVE: {n[n.length - 1] || 0}N</span>
-                                <span className="text-[10px] font-mono text-sky-400">MYELINATED: {c[c.length - 1] || 0}ð</span>
+                                <span className="text-[10px] font-mono text-sky-400">MYELINATED: {c[c.length - 1] || 0}🔒</span>
                             </div>
                         </div>
                         <span className="text-[10px] font-mono text-gray-400 bg-black/70 px-2 py-0.5 rounded border border-gray-800">
@@ -2015,7 +2015,7 @@
                     ctx.fillRect(2, yOffset + 2, 155, 14);
                     ctx.fillStyle = '#e5e7eb'; 
                     ctx.font = '9px monospace'; 
-                    ctx.fillText(`${label} (${activeFF}N | ${activeHeads}H | ${consolidated||0}ð)`, 5, yOffset + 12); 
+                    ctx.fillText(`${label} (${activeFF}N | ${activeHeads}H | ${consolidated||0}🔒)`, 5, yOffset + 12); 
                     if (idx > 0) { 
                         ctx.fillStyle = '#262633'; 
                         ctx.fillRect(0, yOffset, width, 1); 
@@ -2388,7 +2388,7 @@
                                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[10px] font-mono">
                                         <div className="bg-black/50 p-2 rounded border border-gray-800">
                                             <div className="text-gray-500">TOPOLOGY</div>
-                                            <div className="text-white font-bold">{dnaInspection.numLayers}L âĒ {dnaInspection.activeN}N</div>
+                                            <div className="text-white font-bold">{dnaInspection.numLayers}L • {dnaInspection.activeN}N</div>
                                         </div>
                                         <div className="bg-black/50 p-2 rounded border border-gray-800">
                                             <div className="text-gray-500">PARAMETERS</div>
@@ -2502,7 +2502,7 @@
                             <h3 className="text-purple-400 font-bold mb-1.5 uppercase tracking-wider text-xs flex items-center gap-1.5">
                                 <Palette size={14} className="text-purple-400"/> 2. Dynamic Symbolic Vocabulary &amp; Zero-Shock Class Expansion
                             </h3>
-                            <p>Switch seamlessly between <b>SCALAR (1D Continuous)</b> regression and <b>VOCAB (V/10 Classes)</b> symbolic readout! In Vocabulary Mode, C.O.R.A.L. projects each token into <i>V</i> discrete symbol slots ordered by curriculum frequency (<span className="font-mono text-gray-200">Sym 0, Sym 9, Sym 1..8</span>) and computes a differentiable expected value over the active symbol anchors. When new symbol classes are unlocked (`+2 V`), outgoing weights are zeroed and logit biases are shielded at <span className="font-mono">-6.0</span> (<span className="font-mono">P â 0.002</span>) for <b>Zero-Shock Vocabulary Neurogenesis</b>!</p>
+                            <p>Switch seamlessly between <b>SCALAR (1D Continuous)</b> regression and <b>VOCAB (V/10 Classes)</b> symbolic readout! In Vocabulary Mode, C.O.R.A.L. projects each token into <i>V</i> discrete symbol slots ordered by curriculum frequency (<span className="font-mono text-gray-200">Sym 0, Sym 9, Sym 1..8</span>) and computes a differentiable expected value over the active symbol anchors. When new symbol classes are unlocked (`+2 V`), outgoing weights are zeroed and logit biases are shielded at <span className="font-mono">-6.0</span> (<span className="font-mono">P &asymp; 0.002</span>) for <b>Zero-Shock Vocabulary Neurogenesis</b>!</p>
                         </div>
                         <div>
                             <h3 className="text-pink-400 font-bold mb-1.5 uppercase tracking-wider text-xs flex items-center gap-1.5">
@@ -2518,7 +2518,7 @@
                             </div>
                             <div className="p-3.5 bg-gray-900/70 rounded-xl border border-gray-800">
                                 <h3 className="text-amber-400 font-bold mb-2 uppercase tracking-wider text-xs flex items-center gap-1.5"><Shield size={13}/> Myelinated Synaptic Armor</h3>
-                                <p className="text-xs text-gray-300 mb-2">Mastered tasks myelinate top synapses (`ð`) and DNA exports serialize both model weights and Adam optimizer momentum (<i>m, v</i>) for zero-wobble training resumption.</p>
+                                <p className="text-xs text-gray-300 mb-2">Mastered tasks myelinate top synapses (`🔒`) and DNA exports serialize both model weights and Adam optimizer momentum (<i>m, v</i>) for zero-wobble training resumption.</p>
                             </div>
                         </div>
                     </div>
@@ -3363,7 +3363,7 @@
                     await syncUI(newProbe, 0); 
                     refreshMemoryTelemetry(0);
                     const paramsK = (tempModel.getTotalParameters() / 1000).toFixed(1);
-                    showToast(`Restored ${tempModel.layers.length}L âĒ ${paramsK}K Params (${gameState.current.activeNeurons}N | ${hydratedCfg.ponderSteps || 1}x Ponder${restoredOpt ? ' + Adam' : ''})`);
+                    showToast(`Restored ${tempModel.layers.length}L • ${paramsK}K Params (${gameState.current.activeNeurons}N | ${hydratedCfg.ponderSteps || 1}x Ponder${restoredOpt ? ' + Adam' : ''})`);
                 } catch(err) { 
                     showToast(`Load Failed: ${err.message}`);
                 } finally {
@@ -3792,7 +3792,7 @@
                                 </div>
                                 <div className="pt-2 border-t border-gray-800">
                                     <button onClick={handleTogglePerf} className={`w-full py-2.5 rounded-xl text-xs font-bold border transition-all ${uiState.highPerf ? 'bg-red-950/40 text-red-400 border-red-700/60 shadow-lg shadow-red-950/50' : 'bg-gray-800 text-gray-400 border-gray-700'}`}>
-                                        {uiState.highPerf ? 'ðĨ TURBO UNLOCKED (MAX GPU)' : 'âĄ SAFE FRAME BUDGET (12ms)'}
+                                        {uiState.highPerf ? '🚀 TURBO UNLOCKED (MAX GPU)' : '⚡ SAFE FRAME BUDGET (12ms)'}
                                     </button>
                                 </div>
                             </div>
@@ -3803,19 +3803,19 @@
                     <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-3.5 border-b border-gray-800/80 pb-3.5 gap-4">
                         <div>
                             <h1 className="text-2xl md:text-3xl font-black tracking-tight flex items-center gap-3 bg-clip-text text-transparent bg-gradient-to-r from-amber-400 via-orange-400 to-rose-400">
-                                <Brain size={28} className="text-amber-500" /> C.O.R.A.L. <span className="text-xs font-mono text-sky-400 font-bold bg-sky-950/40 px-2 py-0.5 rounded border border-sky-800/50">v15.2 SOTA</span>
+                                <Brain size={28} className="text-amber-500" /> C.O.R.A.L. <span className="text-xs font-mono text-sky-400 font-bold bg-sky-950/40 px-2 py-0.5 rounded border border-sky-800/50">v15.3 SOTA</span>
                             </h1>
                             <div className="text-[10px] font-mono text-gray-400 mt-1.5 flex flex-wrap items-center gap-2">
                                 <button onClick={handleCycleBackend} className="cursor-pointer hover:underline text-emerald-400 bg-emerald-950/30 px-1.5 py-0.5 rounded border border-emerald-800/40" title="Click to cycle backend">
-                                    âĄ {uiState.backend.toUpperCase()} (Switch)
+                                    ⚡ {uiState.backend.toUpperCase()} (Switch)
                                 </button>
-                                <span>âĒ</span>
+                                <span>•</span>
                                 <span className="text-cyan-300 font-bold bg-cyan-950/30 px-1.5 py-0.5 rounded border border-cyan-800/40" title="Active Layers & Total Float32 Model Parameters">
-                                    {telemetry.layers}L ({uiState.ponderSteps}x Ponder âĒ {uiState.manifoldMode.toUpperCase()}) âĒ {telemetry.paramsK}K Params ({uiState.activeNeurons}N | {uiState.readoutMode === 'vocab' ? `${uiState.activeVocab}V` : '1D'})
+                                    {telemetry.layers}L ({uiState.ponderSteps}x Ponder • {uiState.manifoldMode.toUpperCase()}) • {telemetry.paramsK}K Params ({uiState.activeNeurons}N | {uiState.readoutMode === 'vocab' ? `${uiState.activeVocab}V` : '1D'})
                                 </span>
-                                <span>âĒ</span>
+                                <span>•</span>
                                 <span className="text-purple-300 font-bold">{telemetry.sps} Steps/s</span>
-                                <span>âĒ</span>
+                                <span>•</span>
                                 <span className="text-amber-300 font-mono" title="True GPU float32 Tensors & Binary VRAM">{telemetry.tensors} Tensors ({telemetry.memoryMb}MB VRAM)</span>
                             </div>
                         </div>
@@ -3872,11 +3872,11 @@
 
                         <div className="hidden md:flex items-center gap-3 px-3 py-1 bg-black/50 rounded-xl border border-gray-800/80 text-[10px] font-mono">
                             <span className="text-gray-400">TIER <b className="text-amber-300">T{uiState.tier}: {currentTier.name}</b></span>
-                            <span>âĒ</span>
+                            <span>•</span>
                             <span className="text-gray-400">MASTERY <b className="text-emerald-400">{Math.round(progress)}%</b></span>
-                            <span>âĒ</span>
-                            <span className="text-gray-400">NEURONS <b className="text-amber-400">{uiState.activeNeurons}N ({uiState.consolidatedNeurons}ð)</b></span>
-                            <span>âĒ</span>
+                            <span>•</span>
+                            <span className="text-gray-400">NEURONS <b className="text-amber-400">{uiState.activeNeurons}N ({uiState.consolidatedNeurons}🔒)</b></span>
+                            <span>•</span>
                             <span className="text-gray-400">STATUS <b className="text-sky-300">{uiState.status}</b></span>
                         </div>
                     </div>
@@ -4197,7 +4197,7 @@
                                     <div className="flex justify-between items-center mb-3">
                                         <div>
                                             <h3 className="text-xs font-bold text-gray-300 flex items-center gap-2">
-                                                <Brain size={15} className="text-emerald-400"/> TASK MASTERY â T{uiState.tier}: {currentTier.name.toUpperCase()}
+                                                <Brain size={15} className="text-emerald-400"/> TASK MASTERY — T{uiState.tier}: {currentTier.name.toUpperCase()}
                                             </h3>
                                             <p className="text-[10px] text-gray-500 mt-0.5">{currentTier.desc}</p>
                                         </div>
@@ -4228,7 +4228,7 @@
                                             <Zap size={15} className="text-amber-400"/> ZERO-SHOCK NEUROGENESIS &amp; MYELINATION
                                         </h3>
                                         <span className="text-[10px] font-mono text-amber-400 font-bold">
-                                            {uiState.activeNeurons}N ({uiState.consolidatedNeurons}ð) / {uiState.maxPossibleNeurons} Max
+                                            {uiState.activeNeurons}N ({uiState.consolidatedNeurons}🔒) / {uiState.maxPossibleNeurons} Max
                                         </span>
                                     </div>
                                     <div className="w-full h-2.5 bg-gray-900 rounded-full overflow-hidden mb-3 border border-gray-800 flex">
@@ -4286,7 +4286,7 @@
                                                     <div key={idx} className="p-2.5 bg-gray-900/70 rounded-xl border border-gray-800 space-y-1.5">
                                                         <div className="flex justify-between items-center text-[11px] font-mono">
                                                             <span className="text-white font-bold">{blk.label} Cortex Block</span>
-                                                            <span className="text-sky-300">{blk.activeHeads}/{uiState.maxHeads} Heads âĒ {blk.activeFF}/{uiState.configSize}N ({blk.consolidated || 0}ð)</span>
+                                                            <span className="text-sky-300">{blk.activeHeads}/{uiState.maxHeads} Heads • {blk.activeFF}/{uiState.configSize}N ({blk.consolidated || 0}🔒)</span>
                                                         </div>
                                                         <div className="w-full h-2 bg-black rounded-full overflow-hidden border border-gray-800 flex">
                                                             <div className="h-full bg-sky-400 transition-all duration-300" style={{ width: `${pctLock}%` }} title="Myelinated Neurons" />
@@ -4342,7 +4342,7 @@
                                                         <div className="flex items-center justify-between text-[9px] font-mono">
                                                             <span className="text-gray-500">Ret:</span>
                                                             <span className={ret === undefined ? 'text-gray-600' : ret >= 80 ? 'text-emerald-400 font-bold' : ret >= 55 ? 'text-amber-400' : 'text-rose-400 font-bold'}>
-                                                                {ret !== undefined ? `${ret}%` : 'â'}
+                                                                {ret !== undefined ? `${ret}%` : '—'}
                                                             </span>
                                                         </div>
                                                     </div>
@@ -4361,7 +4361,7 @@
                                 <div className="flex flex-wrap justify-between items-center gap-2 border-b border-gray-800/80 pb-3">
                                     <div>
                                         <h3 className="text-xs font-bold text-pink-300 flex items-center gap-2">
-                                            <Palette size={15} className="text-pink-400"/> INTERACTIVE FEW-SHOT SANDBOX DESIGNER â TIER 21 ([TASK_21])
+                                            <Palette size={15} className="text-pink-400"/> INTERACTIVE FEW-SHOT SANDBOX DESIGNER — TIER 21 ([TASK_21])
                                         </h3>
                                         <p className="text-[10px] text-gray-400 mt-0.5">
                                             Paint custom Input &rarr; Target ARC-style grid pairs or select an algorithmic preset. C.O.R.A.L. encodes your rule into token <span className="font-mono text-pink-300">[TASK_21]</span>.
@@ -4726,9 +4726,9 @@
                                         </div>
                                         {[
                                             { id: 'pairs', label: 'Interactive Few-Shot Pairs', desc: 'Trains on your painted Input -> Target examples above.' },
-                                            { id: 'preset_rot90', label: '90Â° Clockwise Matrix Rotation', desc: 'Global 2D spatial transpose + column reversal.' },
+                                            { id: 'preset_rot90', label: '90° Clockwise Matrix Rotation', desc: 'Global 2D spatial transpose + column reversal.' },
                                             { id: 'preset_rule110', label: '1D Rule 110 Cellular Automaton', desc: 'Turing-complete 1D elementary automaton (try 1D RoPE!).' },
-                                            { id: 'preset_swap', label: 'Symbolic Color Swap (1â2, 3â4, 8â9)', desc: 'Bijective non-linear symbol permutation.' }
+                                            { id: 'preset_swap', label: 'Symbolic Color Swap (1↔2, 3↔4, 8↔9)', desc: 'Bijective non-linear symbol permutation.' }
                                         ].map(preset => {
                                             const active = customSandbox.mode === preset.id;
                                             return (
