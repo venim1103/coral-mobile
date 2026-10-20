@@ -884,6 +884,7 @@
                 this.isDisposed = false;
                 this.layers = [];
                 this.vocabAnchorsTensor = tf.tensor2d(VOCAB_ANCHOR_VALUES, [MAX_VOCAB, 1]);
+                this.symAnchorRow = tf.tensor2d([0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9], [1, 10]);
 
                 if (!savedState) {
                     tf.tidy(() => {
@@ -1145,9 +1146,11 @@
                 const xFlat = x.reshape([batch * this.seqLen, 1]);
                 let hSpatial = xFlat.matMul(this.inputProj).add(this.inputBias);
                 
-                // Add orthogonal discrete symbol embedding: round input to [0..9] and gather
-                const symIndices = x.mul(10).round().clipByValue(0, 9).toInt().reshape([batch * this.seqLen]);
-                const symVecs = tf.gather(this.symbolEmbeddings, symIndices);
+                // Pure float32 orthogonal symbol stem: sharp RBF softmax selector over the 10 symbols [0.0..0.9]
+                // Avoids int32 round/clipByValue/gather gradient tape crashes inside optimizer.minimize()
+                const symDiffSq = xFlat.sub(this.symAnchorRow).square().mul(-1000.0);
+                const symWeights = tf.softmax(symDiffSq);
+                const symVecs = symWeights.matMul(this.symbolEmbeddings);
                 hSpatial = hSpatial.add(symVecs);
 
                 hSpatial = hSpatial.reshape([batch, this.seqLen, this.config.dModel]);
@@ -1210,9 +1213,8 @@
                     const curAnchors = isFullV ? this.vocabAnchorsTensor : this.vocabAnchorsTensor.slice([0, 0], [V, 1]);
                     const yFlat = yTrue.reshape([batch * this.seqLen, 1]);
                     const anchorsRow = curAnchors.transpose(); // [1, V] float32
-                    // Pure float32 nearest-anchor target distribution (avoids int32 argMin/oneHot dtype crashes in TF.js)
-                    const negDist = yFlat.sub(anchorsRow).abs().mul(-100.0); // [batch * seqLen, V] float32
-                    return tf.softmax(negDist);
+                    const negDistSq = yFlat.sub(anchorsRow).square().mul(-1000.0); // [batch * seqLen, V] float32
+                    return tf.softmax(negDistSq);
                 });
             }
 
@@ -1245,14 +1247,12 @@
                     const expectedFlat = probs.matMul(curAnchors);
                     const expectedPred = expectedFlat.reshape([batch, this.seqLen]);
 
-                    // Analytical cross entropy using probs and pre-computed targetOneHot (computed outside autograd tape)
-                    const safeTargets = targetOneHot || tf.zeros([batch * this.seqLen, V]);
-                    const logProbs = tf.log(probs.add(1e-7));
-                    const ceLoss = safeTargets.mul(logProbs).sum(1).neg().mean();
                     const mseLoss = tf.losses.meanSquaredError(yTrue, expectedPred);
-                    
-                    const totalLoss = ceLoss.mul(0.75).add(mseLoss.mul(0.25)).add(regLoss);
-                    return totalLoss;
+                    if (targetOneHot) {
+                        const probLoss = probs.sub(targetOneHot).square().mean();
+                        return mseLoss.mul(0.5).add(probLoss.mul(0.5)).add(regLoss);
+                    }
+                    return mseLoss.add(regLoss);
                 }
 
                 const outFlat = hOut.matMul(this.outputHead).add(this.outputBias);
@@ -1426,7 +1426,10 @@
                         let selectedTkAttn = null;
 
                         const xFlat = probeInput.reshape([this.seqLen, 1]);
-                        let hSpatial = xFlat.matMul(this.inputProj).add(this.inputBias);
+                        const symDiffSq = xFlat.sub(this.symAnchorRow).square().mul(-1000.0);
+                        const symWeights = tf.softmax(symDiffSq);
+                        const symVecs = symWeights.matMul(this.symbolEmbeddings);
+                        let hSpatial = xFlat.matMul(this.inputProj).add(this.inputBias).add(symVecs);
                         hSpatial = hSpatial.reshape([1, this.seqLen, this.config.dModel]);
                         const taskTok = this.getTaskToken(tierId, blendConfig);
                         let h = tf.concat([taskTok, hSpatial], 1);
@@ -1639,7 +1642,8 @@
                     this.outputBias,
                     this.vocabHead,
                     this.vocabBias,
-                    this.vocabAnchorsTensor
+                    this.vocabAnchorsTensor,
+                    this.symAnchorRow
                 ]);
                 this.layers.flat().forEach(b => b.dispose());
             }
@@ -3632,6 +3636,7 @@
                     }
                 } catch (error) { 
                     console.warn("Training step caught error:", error);
+                    showToast(`Train Error: ${error && error.message ? error.message : String(error)}`);
                     updateState({ isPlaying: false, status: "PAUSED" }); 
                 } finally {
                     isTrainingStepRef.current = false;
