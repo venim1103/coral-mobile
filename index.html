@@ -1214,14 +1214,14 @@
                     const curB = isFullV ? this.vocabBias : this.vocabBias.slice([0], [V]);
                     const curAnchors = isFullV ? this.vocabAnchorsTensor : this.vocabAnchorsTensor.slice([0, 0], [V, 1]);
 
-                    // Detached one-hot target computation OUTSIDE the autograd gradient tape
-                    // Avoids non-differentiable ArgMin/OneHot backward gradient crash in optimizer.minimize()
+                    // Detached float32 one-hot target computation OUTSIDE the autograd gradient tape
+                    // Avoids non-differentiable ArgMin/OneHot backward gradient crash and premature disposal in optimizer.minimize()
                     const targetOneHot = tf.tidy(() => {
                         const yFlat = yTrue.reshape([batch * this.seqLen, 1]);
                         const anchorsRow = curAnchors.transpose(); // [1, V]
                         const diffs = yFlat.sub(anchorsRow).abs(); // [batch * seqLen, V]
                         const targetIndices = diffs.argMin(1); // [batch * seqLen]
-                        return tf.oneHot(targetIndices, V); // [batch * seqLen, V]
+                        return tf.oneHot(targetIndices, V, 1.0, 0.0, 'float32'); // explicitly float32
                     });
 
                     const h0 = this.encodeStem(x, tierId, blendConfig);
@@ -1243,7 +1243,6 @@
 
                     const ceLoss = tf.losses.softmaxCrossEntropy(targetOneHot, logits);
                     const mseLoss = tf.losses.meanSquaredError(yTrue, expectedPred);
-                    targetOneHot.dispose();
                     
                     // Hybrid loss: categorical cross-entropy wakes up cold-start slots;
                     // anchor MSE keeps loss scale aligned with curriculum thresholds
@@ -4275,7 +4274,7 @@
                                                 <Layers size={14} className="text-cyan-400"/> CORTICAL LAYER ANATOMY
                                             </h3>
                                             <span className="text-[10px] font-mono text-cyan-300 bg-cyan-950/40 px-2 py-0.5 rounded border border-cyan-800/50">
-                                                {telemetry.layers}L Ã {uiState.ponderSteps} Ponder = {telemetry.layers * uiState.ponderSteps}L Eff
+                                                {telemetry.layers}L &times; {uiState.ponderSteps} Ponder = {telemetry.layers * uiState.ponderSteps}L Eff
                                             </span>
                                         </div>
                                         <div className="space-y-2.5">
