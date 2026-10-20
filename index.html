@@ -1202,53 +1202,24 @@
                 return outFlat.reshape([batch, this.seqLen]);
             }
 
-            computeTrainLoss(x, yTrue, hPrefix, tierId = 1, blendConfig = null, customPonderSteps = null, regStrength = 0.0001) {
+            computeVocabTargets(yTrue) {
+                const batch = yTrue.shape[0];
+                const V = Math.max(2, Math.min(MAX_VOCAB, this.config.activeVocab || 4));
+                const isFullV = (V === MAX_VOCAB);
+                const curAnchors = isFullV ? this.vocabAnchorsTensor : this.vocabAnchorsTensor.slice([0, 0], [V, 1]);
+                return tf.tidy(() => {
+                    const yFlat = yTrue.reshape([batch * this.seqLen, 1]);
+                    const anchorsRow = curAnchors.transpose(); // [1, V]
+                    const diffs = yFlat.sub(anchorsRow).abs(); // [batch * seqLen, V]
+                    const targetIndices = diffs.argMin(1); // [batch * seqLen]
+                    return tf.oneHot(targetIndices, V, 1.0, 0.0, 'float32'); // explicitly float32
+                });
+            }
+
+            computeTrainLoss(x, yTrue, hPrefix, targetOneHot = null, tierId = 1, blendConfig = null, customPonderSteps = null, regStrength = 0.0001) {
                 const batch = x.shape[0];
                 const K = Math.max(1, Math.min(MAX_PONDER_STEPS, customPonderSteps || this.config.ponderSteps || 1));
                 const regLoss = this.getRegularizationLoss(regStrength);
-
-                if (this.config.readoutMode === 'vocab') {
-                    const V = Math.max(2, Math.min(MAX_VOCAB, this.config.activeVocab || 4));
-                    const isFullV = (V === MAX_VOCAB);
-                    const curW = isFullV ? this.vocabHead : this.vocabHead.slice([0, 0], [this.config.dModel, V]);
-                    const curB = isFullV ? this.vocabBias : this.vocabBias.slice([0], [V]);
-                    const curAnchors = isFullV ? this.vocabAnchorsTensor : this.vocabAnchorsTensor.slice([0, 0], [V, 1]);
-
-                    // Detached float32 one-hot target computation OUTSIDE the autograd gradient tape
-                    // Avoids non-differentiable ArgMin/OneHot backward gradient crash and premature disposal in optimizer.minimize()
-                    const targetOneHot = tf.tidy(() => {
-                        const yFlat = yTrue.reshape([batch * this.seqLen, 1]);
-                        const anchorsRow = curAnchors.transpose(); // [1, V]
-                        const diffs = yFlat.sub(anchorsRow).abs(); // [batch * seqLen, V]
-                        const targetIndices = diffs.argMin(1); // [batch * seqLen]
-                        return tf.oneHot(targetIndices, V, 1.0, 0.0, 'float32'); // explicitly float32
-                    });
-
-                    const h0 = this.encodeStem(x, tierId, blendConfig);
-                    let hFinal;
-                    if (K === 1 || !hPrefix) {
-                        hFinal = this.runSinglePonderPass(h0, 0, 1);
-                    } else {
-                        const hIn = hPrefix.mul(0.85).add(h0.mul(0.15));
-                        hFinal = this.runSinglePonderPass(hIn, K - 1, K);
-                    }
-
-                    const hSpatialOut = hFinal.slice([0, 1, 0], [batch, this.seqLen, this.config.dModel]);
-                    const hOut = hSpatialOut.reshape([batch * this.seqLen, this.config.dModel]);
-
-                    const logits = hOut.matMul(curW).add(curB); // [batch * seqLen, V]
-                    const probs = tf.softmax(logits);
-                    const expectedFlat = probs.matMul(curAnchors);
-                    const expectedPred = expectedFlat.reshape([batch, this.seqLen]);
-
-                    const ceLoss = tf.losses.softmaxCrossEntropy(targetOneHot, logits);
-                    const mseLoss = tf.losses.meanSquaredError(yTrue, expectedPred);
-                    
-                    // Hybrid loss: categorical cross-entropy wakes up cold-start slots;
-                    // anchor MSE keeps loss scale aligned with curriculum thresholds
-                    const totalLoss = ceLoss.mul(0.75).add(mseLoss.mul(0.25)).add(regLoss);
-                    return totalLoss;
-                }
 
                 const h0 = this.encodeStem(x, tierId, blendConfig);
                 let hFinal;
@@ -1261,6 +1232,29 @@
 
                 const hSpatialOut = hFinal.slice([0, 1, 0], [batch, this.seqLen, this.config.dModel]);
                 const hOut = hSpatialOut.reshape([batch * this.seqLen, this.config.dModel]);
+
+                if (this.config.readoutMode === 'vocab') {
+                    const V = Math.max(2, Math.min(MAX_VOCAB, this.config.activeVocab || 4));
+                    const isFullV = (V === MAX_VOCAB);
+                    const curW = isFullV ? this.vocabHead : this.vocabHead.slice([0, 0], [this.config.dModel, V]);
+                    const curB = isFullV ? this.vocabBias : this.vocabBias.slice([0], [V]);
+                    const curAnchors = isFullV ? this.vocabAnchorsTensor : this.vocabAnchorsTensor.slice([0, 0], [V, 1]);
+
+                    const logits = hOut.matMul(curW).add(curB); // [batch * seqLen, V]
+                    const probs = tf.softmax(logits);
+                    const expectedFlat = probs.matMul(curAnchors);
+                    const expectedPred = expectedFlat.reshape([batch, this.seqLen]);
+
+                    // Analytical cross entropy using probs and pre-computed targetOneHot (computed outside autograd tape)
+                    const safeTargets = targetOneHot || tf.zeros([batch * this.seqLen, V]);
+                    const logProbs = tf.log(probs.add(1e-7));
+                    const ceLoss = safeTargets.mul(logProbs).sum(1).neg().mean();
+                    const mseLoss = tf.losses.meanSquaredError(yTrue, expectedPred);
+                    
+                    const totalLoss = ceLoss.mul(0.75).add(mseLoss.mul(0.25)).add(regLoss);
+                    return totalLoss;
+                }
+
                 const outFlat = hOut.matMul(this.outputHead).add(this.outputBias);
                 const pred = outFlat.reshape([batch, this.seqLen]);
                 const mse = tf.losses.meanSquaredError(yTrue, pred);
@@ -3529,10 +3523,12 @@
                         for (let i = 0; i < maxStepsThisFrame; i++) {
                             if (!gs.highPerf && i > 0 && (performance.now() - frameStart) > 8) break;
                             const hPrefix = K > 1 ? activeModel.computePonderPrefix(tX, activeTrainTier, null, K) : null;
+                            const targetOneHot = activeModel.config.readoutMode === 'vocab' ? activeModel.computeVocabTargets(tY) : null;
                             const cost = optimizerRef.current.minimize(() => { 
-                                return activeModel.computeTrainLoss(tX, tY, hPrefix, activeTrainTier, null, K, gs.regStrength);
+                                return activeModel.computeTrainLoss(tX, tY, hPrefix, targetOneHot, activeTrainTier, null, K, gs.regStrength);
                             }, true); 
                             if (hPrefix) hPrefix.dispose();
+                            if (targetOneHot) targetOneHot.dispose();
                             if (lastCost) lastCost.dispose(); 
                             lastCost = cost; 
                             stepRef.current++;
