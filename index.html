@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>C.O.R.A.L. v15.2 (Custom Task Sandbox & 1D/2D Manifold Cortex)</title>
+    <title>C.O.R.A.L. v15.3 (Self-Evolving Multimodal Cortex)</title>
     
     <!-- React & DOM -->
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
@@ -889,6 +889,7 @@
                     tf.tidy(() => {
                         this.inputProj = tf.variable(tf.randomNormal([1, this.config.dModel], 0, 0.02));
                         this.inputBias = tf.variable(tf.zeros([this.config.dModel]));
+                        this.symbolEmbeddings = tf.variable(tf.randomNormal([10, this.config.dModel], 0, 0.02));
                         this.taskEmbeddings = tf.variable(tf.randomNormal([NUM_TASKS, this.config.dModel], 0, 0.05));
                         
                         const p0 = tf.zeros([1, this.config.dModel]);
@@ -907,6 +908,7 @@
                 } else {
                     this.inputProj = null;
                     this.inputBias = null;
+                    this.symbolEmbeddings = null;
                     this.taskEmbeddings = null;
                     this.ponderEmbeddings = null;
                     this.outputHead = null;
@@ -934,9 +936,9 @@
                 }
             }
 
-            getOrderedVariables(layout = 'v15.2') {
+            getOrderedVariables(layout = 'v15.3') {
                 let vars;
-                if (layout === 'v14.9' || layout === true) {
+                if (layout === 'v14.9') {
                     vars = [
                         this.inputProj, 
                         this.inputBias, 
@@ -953,10 +955,23 @@
                         this.outputHead, 
                         this.outputBias
                     ];
-                } else {
+                } else if (layout === 'v15.1' || layout === 'v15.2') {
                     vars = [
                         this.inputProj, 
                         this.inputBias, 
+                        this.taskEmbeddings, 
+                        this.ponderEmbeddings, 
+                        this.outputHead, 
+                        this.outputBias,
+                        this.vocabHead,
+                        this.vocabBias
+                    ];
+                } else {
+                    // v15.3 / v16.0 with orthogonal symbolEmbeddings
+                    vars = [
+                        this.inputProj, 
+                        this.inputBias, 
+                        this.symbolEmbeddings,
                         this.taskEmbeddings, 
                         this.ponderEmbeddings, 
                         this.outputHead, 
@@ -979,7 +994,7 @@
             }
 
             getTotalParameters() {
-                let total = (3 + NUM_TASKS + MAX_PONDER_STEPS + MAX_VOCAB) * this.config.dModel + 1 + MAX_VOCAB;
+                let total = (3 + 10 + NUM_TASKS + MAX_PONDER_STEPS + MAX_VOCAB) * this.config.dModel + 1 + MAX_VOCAB;
                 for (let layer of this.layers) {
                     for (let block of layer) {
                         total += block.getParamCount();
@@ -993,6 +1008,7 @@
                 const globals = { 
                     inputProj: await gd(this.inputProj), 
                     inputBias: await gd(this.inputBias), 
+                    symbolEmbeddings: await gd(this.symbolEmbeddings),
                     taskEmbeddings: await gd(this.taskEmbeddings),
                     ponderEmbeddings: await gd(this.ponderEmbeddings),
                     outputHead: await gd(this.outputHead), 
@@ -1014,7 +1030,7 @@
                     totalParameters: this.getTotalParameters(),
                     globals: globals, 
                     topology: topology, 
-                    type: 'O-Former-v15.2' 
+                    type: 'O-Former-v15.3' 
                 };
             }
 
@@ -1061,6 +1077,7 @@
 
                 this.inputProj = restore(this.inputProj, g.inputProj, [1, this.config.dModel]);
                 this.inputBias = restore(this.inputBias, g.inputBias, [this.config.dModel]);
+                this.symbolEmbeddings = restore(this.symbolEmbeddings, g.symbolEmbeddings, [10, this.config.dModel], 0.02);
 
                 if (this.taskEmbeddings && !this.taskEmbeddings.isDisposed) this.taskEmbeddings.dispose();
                 if (g.taskEmbeddings && g.taskEmbeddings.length === 20 * this.config.dModel && NUM_TASKS === 21) {
@@ -1127,6 +1144,12 @@
                 const batch = x.shape[0];
                 const xFlat = x.reshape([batch * this.seqLen, 1]);
                 let hSpatial = xFlat.matMul(this.inputProj).add(this.inputBias);
+                
+                // Add orthogonal discrete symbol embedding: round input to [0..9] and gather
+                const symIndices = x.mul(10).round().clipByValue(0, 9).toInt().reshape([batch * this.seqLen]);
+                const symVecs = tf.gather(this.symbolEmbeddings, symIndices);
+                hSpatial = hSpatial.add(symVecs);
+
                 hSpatial = hSpatial.reshape([batch, this.seqLen, this.config.dModel]);
                 const taskTok = this.getTaskToken(tierId, blendConfig).tile([batch, 1, 1]);
                 return tf.concat([taskTok, hSpatial], 1);
@@ -1177,6 +1200,57 @@
 
                 const outFlat = hOut.matMul(this.outputHead).add(this.outputBias);
                 return outFlat.reshape([batch, this.seqLen]);
+            }
+
+            computeTrainLoss(x, yTrue, hPrefix, tierId = 1, blendConfig = null, customPonderSteps = null, regStrength = 0.0001) {
+                const batch = x.shape[0];
+                const K = Math.max(1, Math.min(MAX_PONDER_STEPS, customPonderSteps || this.config.ponderSteps || 1));
+                const h0 = this.encodeStem(x, tierId, blendConfig);
+                let hFinal;
+                if (K === 1 || !hPrefix) {
+                    hFinal = this.runSinglePonderPass(h0, 0, 1);
+                } else {
+                    const hIn = hPrefix.mul(0.85).add(h0.mul(0.15));
+                    hFinal = this.runSinglePonderPass(hIn, K - 1, K);
+                }
+
+                const hSpatialOut = hFinal.slice([0, 1, 0], [batch, this.seqLen, this.config.dModel]);
+                const hOut = hSpatialOut.reshape([batch * this.seqLen, this.config.dModel]);
+                const regLoss = this.getRegularizationLoss(regStrength);
+
+                if (this.config.readoutMode === 'vocab') {
+                    const V = Math.max(2, Math.min(MAX_VOCAB, this.config.activeVocab || 4));
+                    const isFullV = (V === MAX_VOCAB);
+                    const curW = isFullV ? this.vocabHead : this.vocabHead.slice([0, 0], [this.config.dModel, V]);
+                    const curB = isFullV ? this.vocabBias : this.vocabBias.slice([0], [V]);
+                    const curAnchors = isFullV ? this.vocabAnchorsTensor : this.vocabAnchorsTensor.slice([0, 0], [V, 1]);
+
+                    const logits = hOut.matMul(curW).add(curB); // [batch * seqLen, V]
+                    const probs = tf.softmax(logits);
+                    const expectedFlat = probs.matMul(curAnchors);
+                    const expectedPred = expectedFlat.reshape([batch, this.seqLen]);
+
+                    // Map continuous targets yTrue to nearest anchor indices in [0..V-1]
+                    // anchors are [V, 1], yFlat is [batch * seqLen, 1]
+                    const yFlat = yTrue.reshape([batch * this.seqLen, 1]);
+                    const anchorsRow = curAnchors.transpose(); // [1, V]
+                    const diffs = yFlat.sub(anchorsRow).abs(); // [batch * seqLen, V]
+                    const targetIndices = diffs.argMin(1); // [batch * seqLen]
+                    const targetOneHot = tf.oneHot(targetIndices, V); // [batch * seqLen, V]
+
+                    const ceLoss = tf.losses.softmaxCrossEntropy(targetOneHot, logits);
+                    const mseLoss = tf.losses.meanSquaredError(yTrue, expectedPred);
+                    
+                    // Hybrid loss: categorical cross-entropy directly sharpens logits & wakes up cold-start slots;
+                    // anchor MSE keeps scale aligned with curriculum thresholds
+                    const totalLoss = ceLoss.mul(0.75).add(mseLoss.mul(0.25)).add(regLoss);
+                    return totalLoss;
+                }
+
+                const outFlat = hOut.matMul(this.outputHead).add(this.outputBias);
+                const pred = outFlat.reshape([batch, this.seqLen]);
+                const mse = tf.losses.meanSquaredError(yTrue, pred);
+                return mse.add(regLoss);
             }
 
             async growVocab(amount = 2) {
@@ -1271,6 +1345,7 @@
                     : this.outputHead.square().mean().add(this.vocabHead.square().mean().mul(0.01)).add(this.vocabBias.square().mean().mul(0.001));
                 let loss = this.inputProj.square().mean()
                     .add(headReg)
+                    .add(this.symbolEmbeddings.square().mean().mul(0.05))
                     .add(this.taskEmbeddings.square().mean().mul(0.1))
                     .add(this.ponderEmbeddings.square().mean().mul(0.05));
                 for(let l=0; l<this.layers.length; l++) {
@@ -1549,6 +1624,7 @@
                 tf.dispose([
                     this.inputProj, 
                     this.inputBias, 
+                    this.symbolEmbeddings,
                     this.taskEmbeddings, 
                     this.ponderEmbeddings, 
                     this.outputHead, 
@@ -1602,14 +1678,16 @@
         const restoreOptimizerState = (opt, model, optData) => {
             if (!opt || !model || model.isDisposed || !optData) return false;
             try {
+                const varsV153 = model.getOrderedVariables('v15.3');
                 const varsV151 = model.getOrderedVariables('v15.1');
                 const varsV150 = model.getOrderedVariables('v15.0');
                 const varsV149 = model.getOrderedVariables('v14.9');
                 const mListLen = optData.mList ? optData.mList.length : 0;
 
-                let vars = varsV151;
+                let vars = varsV153;
                 if (mListLen === varsV149.length) vars = varsV149;
                 else if (mListLen === varsV150.length) vars = varsV150;
+                else if (mListLen === varsV151.length) vars = varsV151;
 
                 const firstMMap = opt.accumulatedFirstMoment;
                 const secondMMap = opt.accumulatedSecondMoment;
@@ -2093,7 +2171,7 @@
                 const hasOpt = !!(parsed.optimizer && parsed.optimizer.mList && parsed.optimizer.mList.length > 0);
                 const binaryVramMb = ((paramCount * 3 * 4) / (1024 * 1024)).toFixed(2);
                 const jsonKb = (rawLength / 1024).toFixed(1);
-                const numGlobals = m.globals ? Object.keys(m.globals).length : 8;
+                const numGlobals = m.globals ? Object.keys(m.globals).length : 9;
                 const expectedTensors = numGlobals + 1 + (numLayers * 13) + 4 + ((numGlobals + numLayers * 10) * 2 + 2);
                 return {
                     tier: parsed.tier || 1,
@@ -3453,10 +3531,7 @@
                             if (!gs.highPerf && i > 0 && (performance.now() - frameStart) > 8) break;
                             const hPrefix = K > 1 ? activeModel.computePonderPrefix(tX, activeTrainTier, null, K) : null;
                             const cost = optimizerRef.current.minimize(() => { 
-                                const pred = activeModel.trainForward(tX, hPrefix, activeTrainTier, null, K); 
-                                const mse = tf.losses.meanSquaredError(tY, pred); 
-                                const reg = activeModel.getRegularizationLoss(gs.regStrength); 
-                                return mse.add(reg); 
+                                return activeModel.computeTrainLoss(tX, tY, hPrefix, activeTrainTier, null, K, gs.regStrength);
                             }, true); 
                             if (hPrefix) hPrefix.dispose();
                             if (lastCost) lastCost.dispose(); 
@@ -4342,18 +4417,25 @@
                                                     1. PAINT INPUT ({curPair.name || `PAIR #${activeIdx + 1}`})
                                                 </div>
                                                 <div
-                                                    className="grid gap-1 p-1.5 bg-gray-950 rounded-xl border border-sky-900/60 shadow"
-                                                    style={{ gridTemplateColumns: `repeat(${gSize}, minmax(0, 1fr))`, width: '148px', height: '148px' }}
-                                                    onMouseLeave={() => { isPaintingRef.current = false; }}
+                                                    className="grid gap-1 p-1.5 bg-gray-950 rounded-xl border border-sky-900/60 shadow select-none"
+                                                    style={{ gridTemplateColumns: `repeat(${gSize}, minmax(0, 1fr))`, width: '148px', height: '148px', touchAction: 'none' }}
+                                                    onPointerLeave={() => { isPaintingRef.current = false; }}
+                                                    onPointerUp={() => { isPaintingRef.current = false; }}
                                                 >
                                                     {inGrid.map((val, idx) => {
                                                         const digit = Math.min(9, Math.max(0, Math.round(val)));
                                                         return (
                                                             <div
                                                                 key={idx}
-                                                                onMouseDown={() => { isPaintingRef.current = true; handlePaintSandboxCell('input', idx); }}
-                                                                onMouseEnter={() => { if (isPaintingRef.current) handlePaintSandboxCell('input', idx); }}
-                                                                className="cursor-crosshair border border-gray-800/80 hover:border-sky-400 rounded-[4px] flex items-center justify-center transition-colors"
+                                                                onPointerDown={(e) => { 
+                                                                    isPaintingRef.current = true; 
+                                                                    try { e.currentTarget.releasePointerCapture(e.pointerId); } catch (_) {}
+                                                                    handlePaintSandboxCell('input', idx); 
+                                                                }}
+                                                                onPointerEnter={(e) => { 
+                                                                    if (isPaintingRef.current || e.buttons === 1) handlePaintSandboxCell('input', idx); 
+                                                                }}
+                                                                className="cursor-crosshair border border-gray-800/80 hover:border-sky-400 rounded-[4px] flex items-center justify-center transition-colors touch-none"
                                                                 style={{ backgroundColor: getPixelColor(digit, uiState.colorMode) }}
                                                             >
                                                                 {uiState.colorMode === 'arc' && gSize <= 6 && digit > 0 && (
@@ -4371,18 +4453,25 @@
                                                     2. {customSandbox.mode === 'pairs' ? 'PAINT DESIRED TARGET' : `PRESET TARGET (${customSandbox.mode.replace('preset_', '').toUpperCase()})`}
                                                 </div>
                                                 <div
-                                                    className="grid gap-1 p-1.5 bg-gray-950 rounded-xl border border-amber-900/60 shadow"
-                                                    style={{ gridTemplateColumns: `repeat(${gSize}, minmax(0, 1fr))`, width: '148px', height: '148px' }}
-                                                    onMouseLeave={() => { isPaintingRef.current = false; }}
+                                                    className="grid gap-1 p-1.5 bg-gray-950 rounded-xl border border-amber-900/60 shadow select-none"
+                                                    style={{ gridTemplateColumns: `repeat(${gSize}, minmax(0, 1fr))`, width: '148px', height: '148px', touchAction: 'none' }}
+                                                    onPointerLeave={() => { isPaintingRef.current = false; }}
+                                                    onPointerUp={() => { isPaintingRef.current = false; }}
                                                 >
                                                     {tgtGrid.map((val, idx) => {
                                                         const digit = Math.min(9, Math.max(0, Math.round(val)));
                                                         return (
                                                             <div
                                                                 key={idx}
-                                                                onMouseDown={() => { isPaintingRef.current = true; handlePaintSandboxCell('target', idx); }}
-                                                                onMouseEnter={() => { if (isPaintingRef.current) handlePaintSandboxCell('target', idx); }}
-                                                                className="cursor-crosshair border border-gray-800/80 hover:border-amber-400 rounded-[4px] flex items-center justify-center transition-colors"
+                                                                onPointerDown={(e) => { 
+                                                                    isPaintingRef.current = true; 
+                                                                    try { e.currentTarget.releasePointerCapture(e.pointerId); } catch (_) {}
+                                                                    handlePaintSandboxCell('target', idx); 
+                                                                }}
+                                                                onPointerEnter={(e) => { 
+                                                                    if (isPaintingRef.current || e.buttons === 1) handlePaintSandboxCell('target', idx); 
+                                                                }}
+                                                                className="cursor-crosshair border border-gray-800/80 hover:border-amber-400 rounded-[4px] flex items-center justify-center transition-colors touch-none"
                                                                 style={{ backgroundColor: getPixelColor(digit, uiState.colorMode) }}
                                                             >
                                                                 {uiState.colorMode === 'arc' && gSize <= 6 && digit > 0 && (
