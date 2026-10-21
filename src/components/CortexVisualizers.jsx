@@ -1,4 +1,5 @@
 // C.O.R.A.L. Offscreen Atlas Canvas Visualizers (Residual Stream, Synaptic Weights, Attention Maps)
+(() => {
 window.CORAL = window.CORAL || {};
 
 const { useRef, useEffect } = React;
@@ -306,3 +307,4 @@ Object.assign(window.CORAL, {
     MultiBlockViz,
     AttentionViz
 });
+})();

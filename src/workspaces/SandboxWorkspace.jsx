@@ -1,4 +1,5 @@
 // C.O.R.A.L. Workspace Tab 3: Custom Task Sandbox (Tier 21)
+(() => {
 window.CORAL = window.CORAL || {};
 
 const {
@@ -415,3 +416,4 @@ const SandboxWorkspace = ({
 };
 
 window.CORAL.SandboxWorkspace = SandboxWorkspace;
+})();

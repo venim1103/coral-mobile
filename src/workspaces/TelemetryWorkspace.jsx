@@ -1,4 +1,5 @@
 // C.O.R.A.L. Workspace Tab 2: Telemetry & Neurogenesis Deck
+(() => {
 window.CORAL = window.CORAL || {};
 
 const {
@@ -190,3 +191,4 @@ const TelemetryWorkspace = ({
 };
 
 window.CORAL.TelemetryWorkspace = TelemetryWorkspace;
+})();

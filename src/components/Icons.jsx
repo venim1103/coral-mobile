@@ -1,4 +1,5 @@
 // C.O.R.A.L. SVG Icon Library
+(() => {
 window.CORAL = window.CORAL || {};
 
 const IconBase = ({ size=16, className="", children, ...props }) => (
@@ -43,3 +44,4 @@ const Icons = {
 };
 
 Object.assign(window.CORAL, { Icons, ...Icons });
+})();

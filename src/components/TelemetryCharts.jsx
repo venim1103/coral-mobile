@@ -1,4 +1,5 @@
 // C.O.R.A.L. Real-Time Telemetry & Evolution SVG Charts
+(() => {
 window.CORAL = window.CORAL || {};
 
 const { useMemo } = React;
@@ -113,3 +114,4 @@ Object.assign(window.CORAL, {
     GeneralizationChart,
     CapacityEvolutionChart
 });
+})();

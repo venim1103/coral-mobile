@@ -1,4 +1,5 @@
 // C.O.R.A.L. Master React Application Orchestrator
+(() => {
 window.CORAL = window.CORAL || {};
 
 const { useState, useEffect, useRef, useCallback, useMemo } = React;
@@ -1435,3 +1436,4 @@ const App = () => {
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(<App />);
+})();

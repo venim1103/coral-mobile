@@ -1,4 +1,5 @@
 // C.O.R.A.L. DNA Vault & Info Modals
+(() => {
 window.CORAL = window.CORAL || {};
 
 const { useState, useEffect, useRef, useMemo } = React;
@@ -344,3 +345,4 @@ Object.assign(window.CORAL, {
     DnaVaultModal,
     InfoModal
 });
+})();

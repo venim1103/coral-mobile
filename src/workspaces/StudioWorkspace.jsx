@@ -1,4 +1,5 @@
 // C.O.R.A.L. Workspace Tab 1: Cortex Studio
+(() => {
 window.CORAL = window.CORAL || {};
 
 const {
@@ -344,3 +345,4 @@ const StudioWorkspace = ({
 };
 
 window.CORAL.StudioWorkspace = StudioWorkspace;
+})();
