@@ -1349,9 +1349,10 @@
 
             getRegularizationLoss(decay) {
                 const headReg = this.config.readoutMode === 'vocab'
-                    ? this.vocabHead.square().mean().add(this.outputHead.square().mean().mul(0.01)).add(this.vocabBias.square().mean().mul(0.001))
-                    : this.outputHead.square().mean().add(this.vocabHead.square().mean().mul(0.01)).add(this.vocabBias.square().mean().mul(0.001));
+                    ? this.vocabHead.square().mean().add(this.outputHead.square().mean().mul(0.01)).add(this.vocabBias.square().mean().mul(0.001)).add(this.outputBias.square().mean().mul(0.001))
+                    : this.outputHead.square().mean().add(this.vocabHead.square().mean().mul(0.01)).add(this.vocabBias.square().mean().mul(0.001)).add(this.outputBias.square().mean().mul(0.001));
                 let loss = this.inputProj.square().mean()
+                    .add(this.inputBias.square().mean().mul(0.001))
                     .add(headReg)
                     .add(this.symbolEmbeddings.square().mean().mul(0.05))
                     .add(this.taskEmbeddings.square().mean().mul(0.1))
@@ -2722,9 +2723,8 @@
                     const dummyX = tf.zeros([1, model.seqLen]);
                     const dummyY = tf.zeros([1, model.seqLen]);
                     const cost = opt.minimize(() => {
-                        const pred = model.trainForward(dummyX, null, tierId, null, 2);
-                        return tf.losses.meanSquaredError(dummyY, pred).add(model.getRegularizationLoss(regStrength));
-                    }, true);
+                        return model.computeTrainLoss(dummyX, dummyY, null, null, tierId, null, 2, regStrength);
+                    }, true, model.getOrderedVariables());
                     if (cost) cost.dispose();
                     opt.learningRate = savedLR;
                 });
@@ -3530,7 +3530,7 @@
                             const targetOneHot = activeModel.config.readoutMode === 'vocab' ? activeModel.computeVocabTargets(tY) : null;
                             const cost = optimizerRef.current.minimize(() => { 
                                 return activeModel.computeTrainLoss(tX, tY, hPrefix, targetOneHot, activeTrainTier, null, K, gs.regStrength);
-                            }, true); 
+                            }, true, activeModel.getOrderedVariables()); 
                             if (hPrefix) hPrefix.dispose();
                             if (targetOneHot) targetOneHot.dispose();
                             if (lastCost) lastCost.dispose(); 
