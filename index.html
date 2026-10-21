@@ -23,7 +23,21 @@
     <link rel="stylesheet" href="css/coral.css">
 </head>
 <body>
-    <div id="root"></div>
+    <div id="root">
+        <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;font-family:monospace;color:#38bdf8;font-size:12px;">
+            Initializing C.O.R.A.L. v15.3 Neural Cortex...
+        </div>
+    </div>
+    <script>
+        window.addEventListener('error', function(e) {
+            var root = document.getElementById('root');
+            if (root && root.innerText.indexOf('Initializing C.O.R.A.L.') !== -1) {
+                root.innerHTML = '<div style="padding:20px;font-family:monospace;color:#f87171;background:#111;border:1px solid #7f1d1d;margin:16px;border-radius:12px;font-size:12px;">' +
+                    '<b>Boot Error:</b> ' + (e.message || 'Unknown error') + '<br/>' +
+                    '<span style="color:#9ca3af;font-size:10px;">' + (e.filename || '') + ':' + (e.lineno || '') + '</span></div>';
+            }
+        });
+    </script>
 
     <!-- Core Non-JSX Modules (Native JavaScript, Instant Loading) -->
     <script src="src/core/curriculum.js"></script>

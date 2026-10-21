@@ -1,4 +1,5 @@
 // C.O.R.A.L. Rotary Position Embeddings (1D Linear & 2D Axial RoPE)
+(() => {
 window.CORAL = window.CORAL || {};
 
 const get2DAxialRoPE = (gridSize, headDim, manifoldMode = '2d') => {
@@ -71,3 +72,4 @@ Object.assign(window.CORAL, {
     get2DAxialRoPE,
     applyRoPE
 });
+})();

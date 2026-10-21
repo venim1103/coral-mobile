@@ -1,4 +1,5 @@
 // C.O.R.A.L. Organic Transformer Block (Zero-Shock Neurogenesis & Myelinated Consolidation)
+(() => {
 window.CORAL = window.CORAL || {};
 
 class OrganicBlock {
@@ -429,3 +430,4 @@ class OrganicBlock {
 }
 
 window.CORAL.OrganicBlock = OrganicBlock;
+})();

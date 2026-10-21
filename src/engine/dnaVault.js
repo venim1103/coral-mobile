@@ -1,4 +1,5 @@
 // C.O.R.A.L. DNA Vault & Adam Momentum Serializer
+(() => {
 window.CORAL = window.CORAL || {};
 
 const serializeOptimizerState = async (opt, model) => {
@@ -157,3 +158,4 @@ Object.assign(window.CORAL, {
     restoreOptimizerState,
     inspectDnaObject
 });
+})();

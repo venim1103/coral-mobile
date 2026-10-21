@@ -1,4 +1,5 @@
 // C.O.R.A.L. Core Curriculum & Palette Configuration
+(() => {
 window.CORAL = window.CORAL || {};
 
 const VAL_SET_SIZE = 128; 
@@ -108,3 +109,4 @@ Object.assign(window.CORAL, {
     getPixelColor,
     TIERS
 });
+})();

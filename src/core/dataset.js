@@ -1,4 +1,5 @@
 // C.O.R.A.L. Dataset & Custom Sandbox Synthesis
+(() => {
 window.CORAL = window.CORAL || {};
 
 const createDefaultSandboxPairs = (gridSize = 4) => {
@@ -186,3 +187,4 @@ Object.assign(window.CORAL, {
     evalCustomTarget,
     createDataset
 });
+})();

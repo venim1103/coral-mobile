@@ -1,4 +1,5 @@
 // C.O.R.A.L. Organic Transformer Cortex (Universal Recurrence, Dual Readout, & Multi-Task Latents)
+(() => {
 window.CORAL = window.CORAL || {};
 
 class CoralModel {
@@ -781,3 +782,4 @@ class CoralModel {
 }
 
 window.CORAL.CoralModel = CoralModel;
+})();
